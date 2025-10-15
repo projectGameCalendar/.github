@@ -44,7 +44,7 @@ jobs:
               const mdString = n2m.toMarkdownString(mdBlocks);
 
               // README.md로 저장
-              fs.writeFileSync("README.md", mdString.parent, "utf-8");
+              fs.writeFileSync("profile/README.md", mdString.parent, "utf-8");
               console.log("✅ README.md updated successfully.");
             } catch (err) {
               console.error("❌ Error fetching Notion content:", err.message);
