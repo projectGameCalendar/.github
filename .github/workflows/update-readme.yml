@@ -14,42 +14,79 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        
       - name: Fetch Notion Content
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
         run: |
-          pip install notion-client markdownify
+          pip install notion-client
           python3 <<'EOF'
           from notion_client import Client
           import os
           
           notion = Client(auth=os.environ["NOTION_TOKEN"])
-          page = notion.blocks.children.list(block_id="2889f783227480539afffe3b5aa75005")
-          
-          def parse_block(block):
-              t = block["type"]
-              if t == "heading_1":
-                  return "# " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
-              if t == "heading_2":
-                  return "## " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
-              if t == "heading_3":
-                  return "### " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
-              if t == "bulleted_list_item":
-                  return "- " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n"
-              if t == "numbered_list_item":
-                  return "1. " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n"
-              if t == "divider":
-                  return "---\n\n"
-              if t == "paragraph":
-                  return "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
-              return ""
-          
-          content = "".join(parse_block(b) for b in page["results"])
-          
-          with open("README.md", "w", encoding="utf-8") as f:
-            f.write(content)
+          ROOT_ID = "2889f783227480539afffe3b5aa75005"
 
+          def rich_text_to_str(rich_text):
+            return "".join([t.get("plain_text","") for t in rich_text or []])
+
+          def fetch_children(block_id):
+            results = []
+            cursor = None
+            while True:
+              resp = notion.blocks.children.list(block_id=block_id, start_cursor=cursor) if cursor else \
+                     notion.blocks.children.list(block_id=block_id)
+              results.extend(resp.get("results", []))
+              cursor = resp.get("next_cursor")
+              if not resp.get("has_more"):
+                break
+            return results
+
+          def render_blocks(blocks, depth=0):
+            md = []
+            indent = "  " * depth
+
+            for b in blocks:
+              t = b["type"]
+              obj = b.get(t, {})
+
+              if t == "heading_1":
+                md.append(f"# {rich_text_to_str(obj.get('rich_text'))}\n")
+              elif t == "heading_2":
+                md.append(f"## {rich_text_to_str(obj.get('rich_text'))}\n")
+              elif t == "heading_3":
+                md.append(f"### {rich_text_to_str(obj.get('rich_text'))}\n")
+              elif t == "divider":
+                md.append("---\n")
+              elif t == "bulleted_list_item":
+                md.append(f"{indent}- {rich_text_to_str(obj.get('rich_text'))}\n")
+                if b.get("has_children"):
+                  child_md = render_blocks(fetch_children(b["id"]), depth=depth+1)
+                  if child_md.strip():
+                    md.append(child_md)
+              elif t == "numbered_list_item":
+                md.append(f"{indent}1. {rich_text_to_str(obj.get('rich_text'))}\n")
+                if b.get("has_children"):
+                  child_md = render_blocks(fetch_children(b["id"]), depth=depth+1)
+                  if child_md.strip():
+                    md.append(child_md)
+              elif t == "paragraph":
+                text = rich_text_to_str(obj.get("rich_text"))
+                if text.strip():
+                  md.append(f"{indent}{text}\n\n")
+              else:
+                pass
+
+            return "".join(md)
+
+          top = fetch_children(ROOT_ID)
+          content = render_blocks(top, depth=0)
+
+          while "\n\n\n" in content:
+            content = content.replace("\n\n\n", "\n\n")
+
+          with open("README.md", "w", encoding="utf-8") as f:
+            f.write(content.strip() + "\n")
           EOF
 
       - name: Commit changes
