@@ -3,7 +3,7 @@ name: Sync Notion to Organization Readme
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'  # 필요 없으면 삭제하세요
+    - cron: '0 6 * * *'
 
 jobs:
   sync:
