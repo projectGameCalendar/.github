@@ -14,87 +14,59 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install @notionhq/client notion-to-md
         
-      - name: Fetch Notion Content
+      - name: Fetch Notion content and update README
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          PAGE_ID: 2889f783227480539afffe3b5aa75005
         run: |
-          pip install notion-client
-          python3 <<'EOF'
-          from notion_client import Client
-          import os
-          
-          notion = Client(auth=os.environ["NOTION_TOKEN"])
-          ROOT_ID = "2889f783227480539afffe3b5aa75005"
+          cat <<'EOF' > sync-notion.js
+          import { Client } from "@notionhq/client";
+          import { NotionToMarkdown } from "notion-to-md";
+          import fs from "fs";
 
-          def rich_text_to_str(rich_text):
-            return "".join([t.get("plain_text","") for t in rich_text or []])
+          const notion = new Client({ auth: process.env.NOTION_TOKEN });
+          const n2m = new NotionToMarkdown({ notionClient: notion });
+          const pageId = process.env.PAGE_ID;
 
-          def fetch_children(block_id):
-            results = []
-            cursor = None
-            while True:
-              resp = notion.blocks.children.list(block_id=block_id, start_cursor=cursor) if cursor else \
-                     notion.blocks.children.list(block_id=block_id)
-              results.extend(resp.get("results", []))
-              cursor = resp.get("next_cursor")
-              if not resp.get("has_more"):
-                break
-            return results
+          async function main() {
+            try {
+              // 페이지를 Markdown으로 변환
+              const mdBlocks = await n2m.pageToMarkdown(pageId);
+              const mdString = n2m.toMarkdownString(mdBlocks);
 
-          def render_blocks(blocks, depth=0):
-            md = []
-            indent = "  " * depth
+              // README.md로 저장
+              fs.writeFileSync("README.md", mdString.parent, "utf-8");
+              console.log("✅ README.md updated successfully.");
+            } catch (err) {
+              console.error("❌ Error fetching Notion content:", err.message);
+              process.exit(1);
+            }
+          }
 
-            for b in blocks:
-              t = b["type"]
-              obj = b.get(t, {})
-
-              if t == "heading_1":
-                md.append(f"# {rich_text_to_str(obj.get('rich_text'))}\n")
-              elif t == "heading_2":
-                md.append(f"## {rich_text_to_str(obj.get('rich_text'))}\n")
-              elif t == "heading_3":
-                md.append(f"### {rich_text_to_str(obj.get('rich_text'))}\n")
-              elif t == "divider":
-                md.append("---\n")
-              elif t == "bulleted_list_item":
-                md.append(f"{indent}- {rich_text_to_str(obj.get('rich_text'))}\n")
-                if b.get("has_children"):
-                  child_md = render_blocks(fetch_children(b["id"]), depth=depth+1)
-                  if child_md.strip():
-                    md.append(child_md)
-              elif t == "numbered_list_item":
-                md.append(f"{indent}1. {rich_text_to_str(obj.get('rich_text'))}\n")
-                if b.get("has_children"):
-                  child_md = render_blocks(fetch_children(b["id"]), depth=depth+1)
-                  if child_md.strip():
-                    md.append(child_md)
-              elif t == "paragraph":
-                text = rich_text_to_str(obj.get("rich_text"))
-                if text.strip():
-                  md.append(f"{indent}{text}\n\n")
-              else:
-                pass
-
-            return "".join(md)
-
-          top = fetch_children(ROOT_ID)
-          content = render_blocks(top, depth=0)
-
-          while "\n\n\n" in content:
-            content = content.replace("\n\n\n", "\n\n")
-
-          with open("README.md", "w", encoding="utf-8") as f:
-            f.write(content.strip() + "\n")
+          main();
           EOF
+
+          node sync-notion.js
 
       - name: Commit changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if git diff --quiet README.md; then
+            echo "No changes to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "auto: sync from Notion" || echo "No changes"
+          git commit -m "auto: sync from Notion"
           git push
