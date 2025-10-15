@@ -22,20 +22,34 @@ jobs:
           pip install notion-client markdownify
           python3 <<'EOF'
           from notion_client import Client
-          from markdownify import markdownify as md
           import os
-
+          
           notion = Client(auth=os.environ["NOTION_TOKEN"])
           page = notion.blocks.children.list(block_id="2889f783227480539afffe3b5aa75005")
-
-          content = []
-          for block in page["results"]:
-              if "paragraph" in block:
-                  text = "".join([t["plain_text"] for t in block["paragraph"]["rich_text"]])
-                  content.append(text)
-
+          
+          def parse_block(block):
+              t = block["type"]
+              if t == "heading_1":
+                  return "# " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
+              if t == "heading_2":
+                  return "## " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
+              if t == "heading_3":
+                  return "### " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
+              if t == "bulleted_list_item":
+                  return "- " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n"
+              if t == "numbered_list_item":
+                  return "1. " + "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n"
+              if t == "divider":
+                  return "---\n\n"
+              if t == "paragraph":
+                  return "".join([r["plain_text"] for r in block[t]["rich_text"]]) + "\n\n"
+              return ""
+          
+          content = "".join(parse_block(b) for b in page["results"])
+          
           with open("README.md", "w", encoding="utf-8") as f:
-              f.write("".join(content))
+            f.write(content)
+
           EOF
 
       - name: Commit changes
