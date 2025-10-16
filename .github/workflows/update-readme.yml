@@ -61,7 +61,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git diff --quiet README.md; then
+          if git diff --quiet profile/README.md; then
             echo "No changes to commit."
             exit 0
           fi
